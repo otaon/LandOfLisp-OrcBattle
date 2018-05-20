@@ -1,3 +1,6 @@
+;;; ----------------------------------------------------------------
+;;; ゲーム状態
+;;; ----------------------------------------------------------------
 ;;; プレイヤーのグローバル変数
 (defparameter *player-health* nil)      ; プレイヤーの体力
 (defparameter *player-agility* nil)     ; プレイヤーの素早さ
@@ -8,9 +11,19 @@
 (defparameter *monster-builders* nil)   ; モンスターを作成する関数のリスト
 (defparameter *monster-num* 12)         ; モンスターの数
 
+
+;;; ----------------------------------------------------------------
+;;; ユーティリティ
+;;; ----------------------------------------------------------------
+(defun randval (n)
+  "1からnまでのランダム値を返す"
+  (1+ (random (max 1 n))))
+
+;;; ----------------------------------------------------------------
 ;;; ゲームのメイン関数
+;;; ----------------------------------------------------------------
 (defun orc-battle ()
-  "ゲームを実行する関数"
+  "ゲームを実行する"
   ;; モンスター達の情報を初期化する
   (init-monsters)
   ;; プレーヤーの情報を初期化する
@@ -47,3 +60,161 @@
            (or (monster-dead m) (monster-attack m)))
          *monsters*)
     (game-loop)))
+
+;;; ----------------------------------------------------------------
+;;; プレーヤー
+;;; ----------------------------------------------------------------
+(defun init-player ()
+  "プレーヤーを管理する関数"
+  ;; プレーヤーの体力を設定
+  (setf *player-health* 30)
+  ;; プレーヤーの素早さを設定
+  (setf *player-agility* 30)
+  ;; プレーヤーの力を設定
+  (setf *player-strength* 30))
+
+(defun player-dead ()
+  "プレーヤーが死んだかどうか判定する"
+  (<= *player-health* 0))
+
+(defun show-player ()
+  "プレーヤー情報を表示"
+  (fresh-line)
+  (princ "You are a valiant knight with a health of ")
+  (princ *player-health*)
+  (princ ", an agility of ")
+  (princ *player-agility*)
+  (princ ", and a strength of ")
+  (princ *player-strength*))
+
+(defun player-attack ()
+  "プレーヤーの攻撃を処理する"
+  (fresh-line)
+  (princ "Attack style: [s]tab [d]ouble [r]oundhouse:")
+  (case (read)
+    ;; s: stab(突く)
+    ;; 突きは選択したモンスター1体のみに対して攻撃する
+    ;; 攻撃力は最も高い
+    (s (monster-hit (pick-monster)
+                    (+ 2 (randval (ash *player-strength* -1)))))
+    ;; d: double swing(ダブルスイング)
+    ;; ダブルスイングは2回攻撃するが突きより威力が低い
+    (d (let ((x (randval (truncate (/ *player-strength* 6)))))
+         (princ "Your double swing has a strength of ")
+         (princ x)
+         (fresh-line)
+         (monster-hit (pick-monster) x)
+         ;; モンスターが全滅していたら2回目の攻撃はしない
+         (unless (monsters-dead)
+           (monster-hit (pick-monster) x))))
+    ;; r(他のコマンドミスもここ): roundhouse swing(なぎ倒す)
+    ;; プレーヤーの力に応じた回数攻撃するが、攻撃力は1
+    ;; 攻撃対象は毎回ランダム
+    (otherwise (dotimes (x (1+ (randval (truncate (/ *player-strength* 3)))))
+                 (unless (monsters-dead)
+                   (monster-hit (random-monster) 1))))))
+
+
+;; プレーヤーの攻撃に使う補助関数
+(defun random-monster ()
+  "生きているモンスターからランダムに1体選ぶ"
+  (let ((m (aref *monsters* (random (length *monsters*)))))
+    (if (monster-dead m)
+        (random-monster)
+        m)))
+
+(defun pick-monster ()
+  "生きているモンスターをプレーヤーに選ばせる"
+  (fresh-line)
+  (princ "Monster #:")
+  (let ((x (read)))
+    (if (not (and (integerp x) (>= x 1) (<= x *monster-num*)))
+        (progn (princ "This is not a valid monster number.")
+               (pick-monster))
+        (let ((m (aref *monsters* (1- x))))
+          (if (monster-dead m)
+              (progn (princ "That monster is already dead.")
+                     (pick-monster))
+              m)))))
+
+
+;;; ----------------------------------------------------------------
+;;; モンスターを管理
+;;; ----------------------------------------------------------------
+(defun init-monsters ()
+  "モンスターを作成して*monsters*に格納する"
+  (setf *monsters*
+        ;; このmapではmake-arrayした配列を使わず、
+        ;; 新たにモンスターの配列を作って返す
+        (map 'vector
+             (lambda (x)
+               (declare (ignore x))
+               ;; モンスタービルダをランダムに選んで、モンスターを生成する
+               (funcall (nth (random (length *monster-builders*))
+                             *monster-builders*)))
+             (make-array *monster-num*))))
+
+(defun monster-dead (m)
+  "モンスターが死んだかどうか確認する"
+  (<= (monster-health m) 0))
+
+(defun monsters-dead ()
+  "モンスターが全滅したか確認する"
+  (every #'monster-dead *monsters*))
+
+(defun show-monsters ()
+  "全てのモンスターを表示する"
+  (fresh-line)
+  (princ "Your foes:")
+  (let ((x 0))
+    (map 'list
+         (lambda (m)
+           (fresh-line)
+           (princ "  ")
+           (princ (incf x)) ; モンスターのID
+           (princ ". ")
+           ;; モンスターが死んでいたら**dead**とだけ表示する
+           ;; モンスターが生きていたら体力と諸情報を表示する
+           (if (monster-dead m)
+               (princ "**dead**")
+               (progn (princ "(Health=")
+                      (princ (monster-health m))
+                      (princ ") ")
+                      (monster-show m))))
+         *monsters*)))
+
+
+;;; モンスターのジェネリックな部分を定義
+(defstruct monster
+  ;; health: 体力 既定値は1〜10までのランダム値
+  (health (randval 10)))
+
+(defmethod monster-hit (m x)
+  "モンスターが攻撃を受けた時の処理をする
+   引数の型にマッチするmonster-hitを呼び出す
+   本関数は仮想メソッド"
+  ;; モンスターの体力をxだけ減らす
+  (decf (monster-health m) x)
+  ;; モンスターが死んでいたらその旨を表示する
+  ;; モンスターが生きていたら削った体力を表示する
+  (if (monster-dead m)
+      (progn (princ "You killed the ")
+             (princ (type-of m))
+             (princ "! "))
+      (progn (princ "You hit the ")
+             (princ (type-of m))
+             (princ ", knocking off ")
+             (princ x)
+             (princ " health points! "))))
+
+(defmethod mosnter-show (m)
+  "モンスターの名前を表示する"
+  (princ "A fierce ")
+  (princ (type-of m)))
+
+(defmethod monster-attack (m)
+  "モンスターが攻撃した時の処理をする
+   ジェネリックな場合は何もしない
+   各モンスターで必ず定義すべし"
+  (declare (ignore m)))
+
