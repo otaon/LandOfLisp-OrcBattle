@@ -19,6 +19,7 @@
   "1からnまでのランダム値を返す"
   (1+ (random (max 1 n))))
 
+
 ;;; ----------------------------------------------------------------
 ;;; ゲームのメイン関数
 ;;; ----------------------------------------------------------------
@@ -60,6 +61,7 @@
            (or (monster-dead m) (monster-attack m)))
          *monsters*)
     (game-loop)))
+
 
 ;;; ----------------------------------------------------------------
 ;;; プレーヤー
@@ -139,7 +141,7 @@
 
 
 ;;; ----------------------------------------------------------------
-;;; モンスターを管理
+;;; モンスターの一般情報
 ;;; ----------------------------------------------------------------
 (defun init-monsters ()
   "モンスターを作成して*monsters*に格納する"
@@ -183,9 +185,9 @@
                       (monster-show m))))
          *monsters*)))
 
-
 ;;; モンスターのジェネリックな部分を定義
 (defstruct monster
+  "モンスターの情報を定義する"
   ;; health: 体力 既定値は1〜10までのランダム値
   (health (randval 10)))
 
@@ -207,7 +209,7 @@
              (princ x)
              (princ " health points! "))))
 
-(defmethod mosnter-show (m)
+(defmethod monster-show (m)
   "モンスターの名前を表示する"
   (princ "A fierce ")
   (princ (type-of m)))
@@ -217,4 +219,129 @@
    ジェネリックな場合は何もしない
    各モンスターで必ず定義すべし"
   (declare (ignore m)))
+
+
+;;; ----------------------------------------------------------------
+;;; 各モンスターの情報
+;;; ----------------------------------------------------------------
+
+;;; オークの情報 ...................................................
+;;; 体力…普通
+;;; 攻撃…棍棒のレベルに応じた攻撃を繰り出す
+
+(defstruct (orc (:include monster))
+  "モンスターの情報を継承してオークの情報を定義する"
+  ;; クラブのレベルを1〜8で設定する
+  (club-level (randval 8)))
+
+;;; モンスター生成器にオーク生成器を追加
+(push #'make-orc *monster-builders*)
+
+(defmethod monster-show ((m orc))
+  "モンスターの情報を表示する"
+  ;; オークは棍棒を持っているため棍棒のレベルも併記する
+  (princ "A wicked orc with a level ")
+  (princ (orc-club-level m))
+  (princ " club"))
+
+(defmethod monster-attack ((m orc))
+  "オークが攻撃した時の処理"
+  ;; 1〜棍棒のレベルまでの範囲で攻撃力が決まる
+  (let ((x (randval (orc-club-level m))))
+    (princ "An orc swings his club at you and knocks off ")
+    (princ x)
+    (princ " of your health points. ")
+    (decf *player-health* x)))
+
+
+;;; ヒドラの情報 ...................................................
+;;; 体力…普通（ただし体力が頭の数と連動する）
+;;; 攻撃…頭の数に応じて攻撃力が変わる
+(defstruct (hydra (:include monster)))
+
+;;; モンスター生成器にヒドラ生成器を追加
+(push #'make-hydra *monster-builders*)
+
+(defmethod monster-show ((m hydra))
+  "ヒドラの情報を表示する"
+  (princ "A malicious hydra with ")
+  (princ (monster-health m))
+  (princ " heads."))
+
+(defmethod monster-hit ((m hydra) x)
+  "ヒドラが攻撃を受けた時の処理"
+  ;; ダメージをもとにヒドラの頭を減らす
+  (decf (monster-health m) x)
+  (if (monster-dead m)
+      (princ "The corpse of the fully decapitated and decapacitated hydra falls to the floor!")
+      (progn (princ "You lop off ")
+             (princ x)
+             (princ " of the hydra's heads! "))))
+
+(defmethod monster-attack ((m hydra))
+  "ヒドラが攻撃した時の処理"
+  ;; ヒドラの体力=ヒドラの頭の数に応じて攻撃力を決める
+  (let ((x (randval (ash (monster-health m) -1))))
+    (princ "A hydra attacks you with ")
+    (princ x)
+    (princ " of its heads! It also grows back one more head! ")
+    ;; ヒドラが攻撃する毎(つまり毎ターン)に頭を1つ増やす
+    (incf (monster-health m))
+    (decf *player-health*)))
+
+;;; べたべたスライムの情報 .........................................
+;;; 体力…普通
+;;; 攻撃…毒を吐きかけて攻撃するか、べたべたでプレイヤーの素早さを奪う
+
+(defstruct (slime-mold (:include monster))
+  "モンスターの情報を継承してスライムの情報を定義する"
+  ;; べたべた度を決める
+  (sliminess (randval 5)))
+
+;;; モンスター生成器にスライム生成器を追加
+(push #'make-slime-mold *monster-builders*)
+
+(defmethod monster-show ((m slime-mold))
+  "スライムの情報を表示する"
+  (princ "A slime mold with a sliminess of ")
+  (princ (slime-mold-sliminess m)))
+
+(defmethod monster-attack ((m slime-mold))
+  "スライムが攻撃した時の処理"
+  (let ((x (randval (slime-mold-sliminess m))))
+    ;; ベタベタをかけてプレーヤーの素早さを奪う
+    (princ "A slime mold wraps around your legs and decreases you agility by ")
+    (princ x)
+    (princ "! ")
+    (decf *player-agility* x)
+    ;; 2分の1の確率で毒を吐きかける
+    (when (zerop (random 2))
+      (princ "It also squirts in your face, taking away a health point! ")
+      (decf *player-health*))))
+
+;;; 狡猾なブリガンドの情報 .........................................
+;;; 体力…普通
+;;; 攻撃…スリングショットか鞭で攻撃する
+;;;       体力、素早さ、力のうち、一番高いパラメータを攻撃して減らす
+
+;;; ブリガンドのパラメータは体力のみ
+(defstruct (brigand (:include monster)))
+
+;;; モンスター生成器にブリガンド生成器を追加
+(push #'make-brigand *monster-builders*)
+
+(defmethod monster-attack ((m brigand))
+  "ブリガンドが攻撃した時の処理"
+  ;;; プレーヤーの最も高いパラメータを攻撃する
+  (let ((x (max *player-health* *player-agility* *player-strength*)))
+    (cond ((= x *player-health*)
+           (princ "A brigand hits you with his slingshot, taking off 2 health points! ")
+           (decf *player-health* 2))
+          ((= x *player-agility*)
+           (princ "A brigand catches your leg with his whip, taking off 2 agility points! ")
+           (decf *player-agility* 2))
+          ((- x *player-strength*)
+           (princ "A brigand cuts your arm with his whip, taking off 2 strength points! ")
+           (decf *player-strength* 2)))))
+
 
