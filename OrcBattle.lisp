@@ -58,7 +58,10 @@
     ;; まだ死んでいないモンスターは攻撃する
     (map 'list
          (lambda (m)
-           (or (monster-dead m) (monster-attack m)))
+           (unless (monster-dead m)
+             (monster-attack m)
+             (princ (concatenate 'string " (health:" (write-to-string *player-health*) ")"))
+             (fresh-line)))
          *monsters*)
     (game-loop)))
 
@@ -82,12 +85,13 @@
 (defun show-player ()
   "プレーヤー情報を表示"
   (fresh-line)
-  (princ "You are a valiant knight with a health of ")
+  (princ "[ You are a valiant knight with a health of ")
   (princ *player-health*)
   (princ ", an agility of ")
   (princ *player-agility*)
   (princ ", and a strength of ")
-  (princ *player-strength*))
+  (princ *player-strength*)
+  (princ " ]"))
 
 (defun player-attack ()
   "プレーヤーの攻撃を処理する"
